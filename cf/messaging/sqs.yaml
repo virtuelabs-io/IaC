@@ -1,0 +1,215 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: SQS Queue Template
+
+Parameters:
+  QueueName:
+    Description: Name of the queue (Environment tag will be suffixed)
+    Type: String
+  DelaySeconds:
+    Description: Time to delay message delivery
+    Type: String
+    Default: 5
+    AllowedValues:
+      - 1
+      - 2
+      - 3
+      - 4
+      - 5
+      - 10
+      - 30
+      - 60
+      - 120
+      - 300
+  FifoQueue:
+    Description: FIFO queue
+    Type: String
+    Default: No
+    AllowedValues:
+      - Yes
+      - No
+  MessageRetentionPeriod:
+    Description: Message retention period
+    Type: Number
+    Default: 3600
+    AllowedValues:
+      - 300 # 5 Min
+      - 600 # 10 Min
+      - 3600 # 1 Hour
+      - 86400 # 1 Day
+      - 345600 # 4 Days
+      - 604800 # 1 Week
+      - 1209600 # 2 Weeks
+  VisibilityTimeout:
+    Description: The length of time during which a message will be unavailable after a message is delivered from the queue
+    Type: Number
+    Default: 30
+    AllowedValues:
+      - 10
+      - 30
+      - 60
+      - 120
+      - 3600
+      - 43200
+  maxReceiveCount:
+    Description: Maximum retry count before the a message is moved to DLQ
+    Type: Number
+    Default: 5
+    AllowedValues:
+      - 2
+      - 5
+      - 10
+      - 20
+      - 50
+  AlarmEmail:
+    Description: Email to which alarms are sent
+    Type: String
+    Default: operations@virtuelabs.io
+  ApplicationTag:
+    Description: What is this being used for?
+    Type: String
+  EnvironmentTag:
+    Description: Which environment is this being deployed into?
+    Type: String
+    Default: stage
+    AllowedValues:
+      - dev
+      - stage
+      - prod
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      -   Label:
+            default: "General Properties"
+          Parameters:
+            - QueueName
+      -   Label:
+            default: "Queue Properties"
+          Parameters:
+            - DelaySeconds
+            - FifoQueue
+            - MessageRetentionPeriod
+            - VisibilityTimeout
+            - maxReceiveCount
+      -   Label:
+            default: "Alerting Config"
+          Parameters:
+            - AlarmEmail
+      -   Label:
+            default: "Tags"
+          Parameters:
+            - ApplicationTag
+            - EnvironmentTag
+
+Conditions:
+  isFIFO: !Equals [ !Ref FifoQueue, 'Yes' ]
+  isProd: !Equals [ !Ref EnvironmentTag, 'prod' ]
+
+Resources:
+  AlarmTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      Subscription:
+        - Endpoint: !Ref AlarmEmail
+          Protocol: "email"
+  MainQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${QueueName}-${EnvironmentTag}'
+      DelaySeconds: !Ref DelaySeconds
+      MaximumMessageSize: 262144
+      MessageRetentionPeriod: !Ref MessageRetentionPeriod
+      VisibilityTimeout: !Ref VisibilityTimeout
+      RedrivePolicy:
+        deadLetterTargetArn:
+          Fn::GetAtt:
+            - "DLQueue"
+            - "Arn"
+        maxReceiveCount: !Ref maxReceiveCount
+      Tags:
+        - Key: Purpose
+          Value: Messaging
+        - Key: Application
+          Value: !Ref ApplicationTag
+        - Key: Environment
+          Value: !Ref EnvironmentTag
+  DLQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${QueueName}-dql-${EnvironmentTag}'
+      MessageRetentionPeriod: !If [isProd, 1209600, 86400]
+      Tags:
+        - Key: Purpose
+          Value: DQL
+        - Key: Application
+          Value: !Ref ApplicationTag
+        - Key: Environment
+          Value: !Ref EnvironmentTag
+  QueueDepthAlarm:
+    Condition: isProd
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: "Alarm if source queue depth increases to more than 100"
+      Namespace: "AWS/SQS"
+      MetricName: "ApproximateNumberOfMessagesVisible"
+      Dimensions:
+        - Name: "QueueName"
+          Value:
+            Fn::GetAtt:
+              - "MainQueue"
+              - "QueueName"
+      Statistic: "Sum"
+      Period: 1800
+      EvaluationPeriods: 4
+      DatapointsToAlarm: 4
+      Threshold: !If [isProd, 100, 200]
+      ComparisonOperator: "GreaterThanThreshold"
+      AlarmActions:
+        - !Ref AlarmTopic
+      InsufficientDataActions:
+        - !Ref AlarmTopic
+  DLQDepthAlarm:
+    Condition: isProd
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: "Alarm if DLQ depth increases to more than 2 messages"
+      Namespace: "AWS/SQS"
+      MetricName: "ApproximateNumberOfMessagesVisible"
+      Dimensions:
+        - Name: "QueueName"
+          Value:
+            Fn::GetAtt:
+              - "DLQueue"
+              - "QueueName"
+      Statistic: "Sum"
+      Period: 3600
+      EvaluationPeriods: 1
+      DatapointsToAlarm: 1
+      Threshold: !If [isProd, 2, 10]
+      ComparisonOperator: "GreaterThanThreshold"
+      AlarmActions:
+        - !Ref AlarmTopic
+      InsufficientDataActions:
+        - !Ref AlarmTopic
+
+Outputs:
+  SourceQueueURL:
+    Description: "URL of source queue"
+    Value:
+      Ref: "MainQueue"
+  SourceQueueARN:
+    Description: "ARN of source queue"
+    Value:
+      Fn::GetAtt:
+        - "MainQueue"
+        - "Arn"
+  DeadLetterQueueURL:
+    Description: "URL of dead-letter queue"
+    Value:
+      Ref: "DLQueue"
+  DeadLetterQueueARN:
+    Description: "ARN of dead-letter queue"
+    Value:
+      Fn::GetAtt:
+        - "DLQueue"
+        - "Arn"

@@ -1,0 +1,21 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Internal Cognito Stack
+Parameters:
+    AuthName:
+        Type: String
+        Description: Unique Auth Name for Internal Cognito Resources
+    SAMLIdentityProviderARN:
+        Type: String
+        Description: IAM Identity Provider ARN
+
+Metadata:
+    AWS::CloudFormation::Interface:
+        ParameterGroups:
+            -   Label:
+                    default: "Internal Cognito Configuration"
+                Parameters:
+                    - AuthName
+                    - SAMLIdentityProviderARN
+
+Resources:
+
