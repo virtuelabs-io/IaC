@@ -1,0 +1,45 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Event Bus Template
+
+Parameters:
+  EventBusName:
+    Description: Event Bus Name
+    Type: String
+  ApplicationTag:
+    Description: What is this being used for?
+    Type: String
+  EnvironmentTag:
+    Description: Which environment is this being deployed into?
+    Type: String
+    Default: stage
+    AllowedValues:
+      - dev
+      - stage
+      - prod
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: "General Properties"
+        Parameters:
+          - EventBusName
+      - Label:
+          default: "Tags"
+        Parameters:
+          - ApplicationTag
+          - EnvironmentTag
+
+Resources:
+  EventBus:
+    Type: AWS::Events::EventBus
+    Properties:
+      Name: !Ref EventBusName
+
+Outputs:
+  EventBusARN:
+    Description: "ARN of the Event Bus"
+    Value:
+      Fn::GetAtt:
+        - "EventBus"
+        - "Arn"

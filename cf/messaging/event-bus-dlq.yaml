@@ -1,0 +1,45 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: DLQ Event Bus Template
+
+Parameters:
+  DLQName:
+    Description: Event Bus Name
+    Type: String
+  ApplicationTag:
+    Description: What is this being used for?
+    Type: String
+  EnvironmentTag:
+    Description: Which environment is this being deployed into?
+    Type: String
+    Default: stage
+    AllowedValues:
+      - dev
+      - stage
+      - prod
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: "General Properties"
+        Parameters:
+          - DLQName
+      - Label:
+          default: "Tags"
+        Parameters:
+          - ApplicationTag
+          - EnvironmentTag
+
+Resources:
+  DLQBus:
+    Type: AWS::Events::EventBus
+    Properties:
+      Name: !Ref DLQName
+
+Outputs:
+  DLQBusARN:
+    Description: "ARN of the DLQEvent Bus"
+    Value:
+      Fn::GetAtt:
+        - "DLQBus"
+        - "Arn"
